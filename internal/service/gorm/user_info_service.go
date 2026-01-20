@@ -62,7 +62,7 @@ func (u *userInfoService) checkUserIsAdminOrNot(user model.UserInfo) int8 {
 // Login 登录
 func (u *userInfoService) Login(loginReq request.LoginRequest) (string, *respond.LoginRespond, int) {
 	password := loginReq.Password
-	var user model.UserInfo
+	// var user model.UserInfo
 	user, err := u.userDao.GetUserByTelephone(loginReq.Telephone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
@@ -99,7 +99,7 @@ func (u *userInfoService) Login(loginReq request.LoginRequest) (string, *respond
 
 // SmsLogin 验证码登录
 func (u *userInfoService) SmsLogin(req request.SmsLoginRequest) (string, *respond.LoginRespond, int) {
-	var user model.UserInfo
+	// var user model.UserInfo
 	user, err := u.userDao.GetUserByTelephone(req.Telephone)
 	if err != nil {
 		if errors.Is(err, gorm.ErrRecordNotFound) {
