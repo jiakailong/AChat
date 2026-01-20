@@ -153,16 +153,18 @@ func (u *userInfoService) SendSmsCode(telephone string) (string, int) {
 
 // checkTelephoneExist 检查手机号是否存在
 func (u *userInfoService) checkTelephoneExist(telephone string) (string, int) {
-	var user model.UserInfo
-	// gorm默认排除软删除，所以翻译过来的select语句是SELECT * FROM `user_info` WHERE telephone = '18089596095' AND `user_info`.`deleted_at` IS NULL ORDER BY `user_info`.`id` LIMIT 1
-	if res := dao.GormDB.Where("telephone = ?", telephone).First(&user); res.Error != nil {
-		if errors.Is(res.Error, gorm.ErrRecordNotFound) {
+
+	_, err := u.userDao.GetUserByTelephone(telephone)
+	if err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
 			zlog.Info("该电话不存在，可以注册")
 			return "", 0
 		}
-		zlog.Error(res.Error.Error())
+
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, -1
 	}
+
 	zlog.Info("该电话已经存在，注册失败")
 	return "该电话已经存在，注册失败", -2
 }

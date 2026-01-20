@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/gin-gonic/gin"
-	"github.com/go-redis/redis/v8"
 	"io"
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao"
@@ -16,6 +14,9 @@ import (
 	"kama_chat_server/pkg/zlog"
 	"os"
 	"path/filepath"
+
+	"github.com/gin-gonic/gin"
+	"github.com/go-redis/redis/v8"
 )
 
 type messageService struct {
