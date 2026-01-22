@@ -22,7 +22,12 @@ func main() {
 	kafkaConfig := conf.KafkaConfig
 
 	userDAO := dao.NewUserDAO(dao.GormDB)
+	groupDAO := dao.NewGroupDAO(dao.GormDB)
+	messageDAO := dao.NewMessageDAO(dao.GormDB)
+
 	gorm.InitUserInfoService(userDAO)
+	gorm.InitGroupInfoService(groupDAO, userDAO)
+	gorm.InitMessageService(messageDAO)
 	if kafkaConfig.MessageMode == "kafka" {
 		kafka.KafkaService.KafkaInit()
 	}
