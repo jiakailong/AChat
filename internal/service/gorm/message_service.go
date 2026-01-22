@@ -8,7 +8,6 @@ import (
 	"kama_chat_server/internal/config"
 	"kama_chat_server/internal/dao"
 	"kama_chat_server/internal/dto/respond"
-	"kama_chat_server/internal/model"
 	myredis "kama_chat_server/internal/service/redis"
 	"kama_chat_server/pkg/constants"
 	"kama_chat_server/pkg/zlog"
@@ -20,9 +19,16 @@ import (
 )
 
 type messageService struct {
+	messageDao dao.MessageDAO
 }
 
-var MessageService = new(messageService)
+var MessageService *messageService
+
+func InitMessageService(messageDao dao.MessageDAO) {
+	MessageService = &messageService{
+		messageDao: messageDao,
+	}
+}
 
 // GetMessageList 获取聊天记录
 func (m *messageService) GetMessageList(userOneId, userTwoId string) (string, []respond.GetMessageListRespond, int) {
@@ -31,9 +37,9 @@ func (m *messageService) GetMessageList(userOneId, userTwoId string) (string, []
 		if errors.Is(err, redis.Nil) {
 			zlog.Info(err.Error())
 			zlog.Info(fmt.Sprintf("%s %s", userTwoId, userTwoId))
-			var messageList []model.Message
-			if res := dao.GormDB.Where("(send_id = ? AND receive_id = ?) OR (send_id = ? AND receive_id = ?)", userOneId, userTwoId, userTwoId, userOneId).Order("created_at ASC").Find(&messageList); res.Error != nil {
-				zlog.Error(res.Error.Error())
+			messageList, err := m.messageDao.GetMessageListByUserID(userOneId, userTwoId)
+			if err != nil {
+				zlog.Error(err.Error())
 				return constants.SYSTEM_ERROR, nil, -1
 			}
 			var rspList []respond.GetMessageListRespond
@@ -77,9 +83,14 @@ func (m *messageService) GetGroupMessageList(groupId string) (string, []respond.
 	rspString, err := myredis.GetKeyNilIsErr("group_messagelist_" + groupId)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			var messageList []model.Message
-			if res := dao.GormDB.Where("receive_id = ?", groupId).Order("created_at ASC").Find(&messageList); res.Error != nil {
-				zlog.Error(res.Error.Error())
+			// var messageList []model.Message
+			// if res := dao.GormDB.Where("receive_id = ?", groupId).Order("created_at ASC").Find(&messageList); res.Error != nil {
+			// 	zlog.Error(res.Error.Error())
+			// 	return constants.SYSTEM_ERROR, nil, -1
+			// }
+			messageList, err := m.messageDao.GetMessageListByGroupID(groupId)
+			if err != nil {
+				zlog.Error(err.Error())
 				return constants.SYSTEM_ERROR, nil, -1
 			}
 			var rspList []respond.GetGroupMessageListRespond
@@ -133,7 +144,7 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, int) {
 			return constants.SYSTEM_ERROR, -1
 		}
 		defer file.Close()
-		zlog.Info(fmt.Sprintf("文件名：%s，文件大小：%d", fileHeader.Filename, fileHeader.Size))
+		zlog.Info(fmt.Sprintf("文件名:%s,文件大小:%d", fileHeader.Filename, fileHeader.Size))
 		// 原来Filename应该是213451545.xxx，将Filename修改为avatar_ownerId.xxx
 		ext := filepath.Ext(fileHeader.Filename)
 		zlog.Info(ext)
@@ -167,7 +178,7 @@ func (m *messageService) UploadFile(c *gin.Context) (string, int) {
 			return constants.SYSTEM_ERROR, -1
 		}
 		defer file.Close()
-		zlog.Info(fmt.Sprintf("文件名：%s，文件大小：%d", fileHeader.Filename, fileHeader.Size))
+		zlog.Info(fmt.Sprintf("文件名:%s,文件大小:%d", fileHeader.Filename, fileHeader.Size))
 		// 原来Filename应该是213451545.xxx，将Filename修改为avatar_ownerId.xxx
 		ext := filepath.Ext(fileHeader.Filename)
 		zlog.Info(ext)
