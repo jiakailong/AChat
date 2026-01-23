@@ -10,9 +10,11 @@ import (
 	"kama_chat_server/internal/dto/respond"
 	myredis "kama_chat_server/internal/service/redis"
 	"kama_chat_server/pkg/constants"
+	"kama_chat_server/pkg/util/random"
 	"kama_chat_server/pkg/zlog"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/gin-gonic/gin"
 	"github.com/go-redis/redis/v8"
@@ -137,6 +139,8 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, int) {
 		return constants.SYSTEM_ERROR, -1
 	}
 	mForm := c.Request.MultipartForm
+	var newFileName string
+
 	for key, _ := range mForm.File {
 		file, fileHeader, err := c.Request.FormFile(key)
 		if err != nil {
@@ -145,9 +149,21 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, int) {
 		}
 		defer file.Close()
 		zlog.Info(fmt.Sprintf("文件名:%s,文件大小:%d", fileHeader.Filename, fileHeader.Size))
-		// 原来Filename应该是213451545.xxx，将Filename修改为avatar_ownerId.xxx
-		ext := filepath.Ext(fileHeader.Filename)
-		zlog.Info(ext)
+
+		ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+		allowExts := map[string]bool{
+			".jpg":  true,
+			".jpeg": true,
+			".png":  true,
+			".gif":  true,
+		}
+		if !allowExts[ext] {
+			zlog.Error("不支持的文件类型")
+			return constants.SYSTEM_ERROR, -1
+		}
+
+		newFileName = random.GetNowAndLenRandomString(20) + ext
+
 		localFileName := config.GetConfig().StaticAvatarPath + "/" + fileHeader.Filename
 		out, err := os.Create(localFileName)
 		if err != nil {
@@ -159,9 +175,9 @@ func (m *messageService) UploadAvatar(c *gin.Context) (string, int) {
 			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, -1
 		}
-		zlog.Info("完成文件上传")
+		zlog.Info("完成头像上传")
 	}
-	return "上传成功", 0
+	return newFileName, 0
 }
 
 // UploadFile 上传文件
@@ -171,6 +187,8 @@ func (m *messageService) UploadFile(c *gin.Context) (string, int) {
 		return constants.SYSTEM_ERROR, -1
 	}
 	mForm := c.Request.MultipartForm
+	var newFileName string
+
 	for key, _ := range mForm.File {
 		file, fileHeader, err := c.Request.FormFile(key)
 		if err != nil {
@@ -179,10 +197,12 @@ func (m *messageService) UploadFile(c *gin.Context) (string, int) {
 		}
 		defer file.Close()
 		zlog.Info(fmt.Sprintf("文件名:%s,文件大小:%d", fileHeader.Filename, fileHeader.Size))
-		// 原来Filename应该是213451545.xxx，将Filename修改为avatar_ownerId.xxx
-		ext := filepath.Ext(fileHeader.Filename)
-		zlog.Info(ext)
-		localFileName := config.GetConfig().StaticFilePath + "/" + fileHeader.Filename
+
+		// 获取后缀
+		ext := strings.ToLower(filepath.Ext(fileHeader.Filename))
+		newFileName = random.GetNowAndLenRandomString(20) + ext
+
+		localFileName := config.GetConfig().StaticFilePath + "/" + newFileName
 		out, err := os.Create(localFileName)
 		if err != nil {
 			zlog.Error(err.Error())
@@ -193,7 +213,8 @@ func (m *messageService) UploadFile(c *gin.Context) (string, int) {
 			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, -1
 		}
-		zlog.Info("完成文件上传")
+		zlog.Info("完成文件上传: " + newFileName)
 	}
-	return "上传成功", 0
+	// 【关键修正】返回新生成的文件名
+	return newFileName, 0
 }
