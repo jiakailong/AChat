@@ -17,6 +17,8 @@ type UserDAO interface {
 	DisableUsers(uuids []string, status int8) error
 	DeleteUsers(uuids []string) error
 	BatchSetAdmin(uuids []string, isAdmin int8) error
+
+	GetUserContact(userId, contactId string) (*model.UserContact, error)
 }
 
 type userDAOImpl struct {
@@ -112,4 +114,10 @@ func (dao *userDAOImpl) DeleteUsers(uuids []string) error {
 
 func (dao *userDAOImpl) BatchSetAdmin(uuids []string, isAdmin int8) error {
 	return dao.db.Model(&model.UserInfo{}).Where("uuid in ?", uuids).Update("is_admin", isAdmin).Error
+}
+
+func (dao *userDAOImpl) GetUserContact(userId, contactId string) (*model.UserContact, error) {
+	var contact model.UserContact
+	err := dao.db.Where("user_id = ? AND contact_id = ?", userId, contactId).First(&contact).Error
+	return &contact, err
 }

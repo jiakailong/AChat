@@ -4,8 +4,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/go-redis/redis/v8"
-	"gorm.io/gorm"
 	"kama_chat_server/internal/dao"
 	"kama_chat_server/internal/dto/request"
 	"kama_chat_server/internal/dto/respond"
@@ -18,18 +16,32 @@ import (
 	"kama_chat_server/pkg/util/random"
 	"kama_chat_server/pkg/zlog"
 	"time"
+
+	"github.com/go-redis/redis/v8"
+	"gorm.io/gorm"
 )
 
 type sessionService struct {
+	sessionDAO dao.SessionDAO
+	userDAO    dao.UserDAO
+	groupDAO   dao.GroupDAO
 }
 
-var SessionService = new(sessionService)
+var SessionService *sessionService
+
+func InitSessionService(sessionDao dao.SessionDAO, userDao dao.UserDAO, groupDao dao.GroupDAO) {
+	SessionService = &sessionService{
+		sessionDAO: sessionDao,
+		userDAO:    userDao,
+		groupDAO:   groupDao,
+	}
+}
 
 // CreateSession 创建会话
 func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string, string, int) {
-	var user model.UserInfo
-	if res := dao.GormDB.Where("uuid = ?", req.SendId).First(&user); res.Error != nil {
-		zlog.Error(res.Error.Error())
+	_, err := s.userDAO.GetUserByUUID(req.SendId)
+	if err != nil {
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, "", -1
 	}
 	var session model.Session
@@ -38,9 +50,9 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 	session.ReceiveId = req.ReceiveId
 	session.CreatedAt = time.Now()
 	if req.ReceiveId[0] == 'U' {
-		var receiveUser model.UserInfo
-		if res := dao.GormDB.Where("uuid = ?", req.ReceiveId).First(&receiveUser); res.Error != nil {
-			zlog.Error(res.Error.Error())
+		receiveUser, err := s.userDAO.GetUserByUUID(req.ReceiveId)
+		if err != nil {
+			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, "", -1
 		}
 		if receiveUser.Status == user_status_enum.DISABLE {
@@ -51,9 +63,9 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 			session.Avatar = receiveUser.Avatar
 		}
 	} else {
-		var receiveGroup model.GroupInfo
-		if res := dao.GormDB.Where("uuid = ?", req.ReceiveId).First(&receiveGroup); res.Error != nil {
-			zlog.Error(res.Error.Error())
+		receiveGroup, err := s.groupDAO.GetGroupByUUID(req.ReceiveId)
+		if err != nil {
+			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, "", -1
 		}
 		if receiveGroup.Status == group_status_enum.DISABLE {
@@ -65,8 +77,8 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 		}
 	}
 
-	if res := dao.GormDB.Create(&session); res.Error != nil {
-		zlog.Error(res.Error.Error())
+	if err := s.sessionDAO.CreateSession(&session); err != nil {
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, "", -1
 	}
 	if err := myredis.DelKeysWithPattern("group_session_list_" + req.SendId); err != nil {
@@ -80,9 +92,10 @@ func (s *sessionService) CreateSession(req request.CreateSessionRequest) (string
 
 // CheckOpenSessionAllowed 检查是否允许发起会话
 func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (string, bool, int) {
-	var contact model.UserContact
-	if res := dao.GormDB.Where("user_id = ? and contact_id = ?", sendId, receiveId).First(&contact); res.Error != nil {
-		zlog.Error(res.Error.Error())
+	// 1. 检查联系人关系
+	contact, err := s.userDAO.GetUserContact(sendId, receiveId)
+	if err != nil {
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, false, -1
 	}
 	if contact.Status == contact_status_enum.BE_BLACK {
@@ -90,10 +103,12 @@ func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (stri
 	} else if contact.Status == contact_status_enum.BLACK {
 		return "已拉黑对方，先解除拉黑状态才能发起会话", false, -2
 	}
+
+	// 2. 检查目标状态
 	if receiveId[0] == 'U' {
-		var user model.UserInfo
-		if res := dao.GormDB.Where("uuid = ?", receiveId).First(&user); res.Error != nil {
-			zlog.Error(res.Error.Error())
+		user, err := s.userDAO.GetUserByUUID(receiveId)
+		if err != nil {
+			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, false, -1
 		}
 		if user.Status == user_status_enum.DISABLE {
@@ -101,9 +116,9 @@ func (s *sessionService) CheckOpenSessionAllowed(sendId, receiveId string) (stri
 			return "对方已被禁用，无法发起会话", false, -2
 		}
 	} else {
-		var group model.GroupInfo
-		if res := dao.GormDB.Where("uuid = ?", receiveId).First(&group); res.Error != nil {
-			zlog.Error(res.Error.Error())
+		group, err := s.groupDAO.GetGroupByUUID(receiveId)
+		if err != nil {
+			zlog.Error(err.Error())
 			return constants.SYSTEM_ERROR, false, -1
 		}
 		if group.Status == group_status_enum.DISABLE {
@@ -121,9 +136,10 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, st
 	rspString, err := myredis.GetKeyWithPrefixNilIsErr("session_" + req.SendId + "_" + req.ReceiveId)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			var session model.Session
-			if res := dao.GormDB.Where("send_id = ? and receive_id = ?", req.SendId, req.ReceiveId).First(&session); res.Error != nil {
-				if errors.Is(res.Error, gorm.ErrRecordNotFound) {
+			// 查询 DB
+			session, err := s.sessionDAO.GetSessionBySendAndReceive(req.SendId, req.ReceiveId)
+			if err != nil {
+				if errors.Is(err, gorm.ErrRecordNotFound) {
 					zlog.Info("会话没有找到，将新建会话")
 					createReq := request.CreateSessionRequest{
 						SendId:    req.SendId,
@@ -131,14 +147,9 @@ func (s *sessionService) OpenSession(req request.OpenSessionRequest) (string, st
 					}
 					return s.CreateSession(createReq)
 				}
+				zlog.Error(err.Error())
+				return constants.SYSTEM_ERROR, "", -1
 			}
-			//rspString, err := json.Marshal(session)
-			//if err != nil {
-			//	zlog.Error(err.Error())
-			//}
-			//if err := myredis.SetKeyEx("session_"+req.SendId+"_"+req.ReceiveId+"_"+session.Uuid, string(rspString), time.Minute*constants.REDIS_TIMEOUT); err != nil {
-			//	zlog.Error(err.Error())
-			//}
 			return "会话创建成功", session.Uuid, 0
 		} else {
 			zlog.Error(err.Error())
@@ -203,26 +214,26 @@ func (s *sessionService) GetGroupSessionList(ownerId string) (string, []respond.
 	rspString, err := myredis.GetKeyNilIsErr("group_session_list_" + ownerId)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			var sessionList []model.Session
-			if res := dao.GormDB.Order("created_at DESC").Where("send_id = ?", ownerId).Find(&sessionList); res.Error != nil {
-				if errors.Is(res.Error, gorm.ErrRecordNotFound) {
-					zlog.Info("未创建群聊会话")
-					return "未创建群聊会话", nil, 0
-				} else {
-					zlog.Error(res.Error.Error())
-					return constants.SYSTEM_ERROR, nil, -1
-				}
+			// 直接调用 DAO
+			sessionList, err := s.sessionDAO.GetGroupSessionList(ownerId)
+			if err != nil {
+				zlog.Error(err.Error())
+				return constants.SYSTEM_ERROR, nil, -1
 			}
+			if len(sessionList) == 0 {
+				zlog.Info("未创建群聊会话")
+				return "未创建群聊会话", nil, 0
+			}
+
 			var sessionListRsp []respond.GroupSessionListRespond
-			for i := 0; i < len(sessionList); i++ {
-				if sessionList[i].ReceiveId[0] == 'G' {
-					sessionListRsp = append(sessionListRsp, respond.GroupSessionListRespond{
-						SessionId: sessionList[i].Uuid,
-						Avatar:    sessionList[i].Avatar,
-						GroupId:   sessionList[i].ReceiveId,
-						GroupName: sessionList[i].ReceiveName,
-					})
-				}
+			// 不需要在内存中 if sessionList[i].ReceiveId[0] == 'G'
+			for _, session := range sessionList {
+				sessionListRsp = append(sessionListRsp, respond.GroupSessionListRespond{
+					SessionId: session.Uuid,
+					Avatar:    session.Avatar,
+					GroupId:   session.ReceiveId,
+					GroupName: session.ReceiveName,
+				})
 			}
 			rspString, err := json.Marshal(sessionListRsp)
 			if err != nil {
@@ -246,21 +257,21 @@ func (s *sessionService) GetGroupSessionList(ownerId string) (string, []respond.
 
 // DeleteSession 删除会话
 func (s *sessionService) DeleteSession(ownerId, sessionId string) (string, int) {
-
-	var session model.Session
-	if res := dao.GormDB.Where("uuid = ?", sessionId).Find(&session); res.Error != nil {
-		zlog.Error(res.Error.Error())
+	session, err := s.sessionDAO.GetSessionByUUID(sessionId)
+	if err != nil {
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, -1
 	}
+
 	session.DeletedAt.Valid = true
 	session.DeletedAt.Time = time.Now()
-	if res := dao.GormDB.Save(&session); res.Error != nil {
-		zlog.Error(res.Error.Error())
+
+	if err := s.sessionDAO.UpdateSession(session); err != nil {
+		zlog.Error(err.Error())
 		return constants.SYSTEM_ERROR, -1
 	}
-	//if err := myredis.DelKeysWithSuffix(sessionId); err != nil {
-	//	zlog.Error(err.Error())
-	//}
+
+	// 缓存清理
 	if err := myredis.DelKeysWithPattern("group_session_list_" + ownerId); err != nil {
 		zlog.Error(err.Error())
 	}

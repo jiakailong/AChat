@@ -24,7 +24,9 @@ func main() {
 	userDAO := dao.NewUserDAO(dao.GormDB)
 	groupDAO := dao.NewGroupDAO(dao.GormDB)
 	messageDAO := dao.NewMessageDAO(dao.GormDB)
+	sessionDAO := dao.NewSessionDAO(dao.GormDB)
 
+	gorm.InitSessionService(sessionDAO, userDAO, groupDAO)
 	gorm.InitUserInfoService(userDAO)
 	gorm.InitGroupInfoService(groupDAO, userDAO)
 	gorm.InitMessageService(messageDAO)
