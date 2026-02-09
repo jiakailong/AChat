@@ -168,26 +168,23 @@ func (s *sessionService) GetUserSessionList(ownerId string) (string, []respond.U
 	rspString, err := myredis.GetKeyNilIsErr("session_list_" + ownerId)
 	if err != nil {
 		if errors.Is(err, redis.Nil) {
-			var sessionList []model.Session
-			if res := dao.GormDB.Order("created_at DESC").Where("send_id = ?", ownerId).Find(&sessionList); res.Error != nil {
-				if errors.Is(res.Error, gorm.ErrRecordNotFound) {
-					zlog.Info("未创建用户会话")
-					return "未创建用户会话", nil, 0
-				} else {
-					zlog.Error(res.Error.Error())
-					return constants.SYSTEM_ERROR, nil, -1
-				}
+			sessionList, err := s.sessionDAO.GetUserSessionList(ownerId)
+			if err != nil {
+				zlog.Error(err.Error())
+				return constants.SYSTEM_ERROR, nil, -1
+			}
+			if len(sessionList) == 0 {
+				zlog.Info("未创建用户会话")
+				return "未创建用户会话", nil, 0
 			}
 			var sessionListRsp []respond.UserSessionListRespond
-			for i := 0; i < len(sessionList); i++ {
-				if sessionList[i].ReceiveId[0] == 'U' {
-					sessionListRsp = append(sessionListRsp, respond.UserSessionListRespond{
-						SessionId: sessionList[i].Uuid,
-						Avatar:    sessionList[i].Avatar,
-						UserId:    sessionList[i].ReceiveId,
-						Username:  sessionList[i].ReceiveName,
-					})
-				}
+			for _, session := range sessionList {
+				sessionListRsp = append(sessionListRsp, respond.UserSessionListRespond{
+					SessionId: session.Uuid,
+					Avatar:    session.Avatar,
+					UserId:    session.ReceiveId,
+					Username:  session.ReceiveName,
+				})
 			}
 			rspString, err := json.Marshal(sessionListRsp)
 			if err != nil {

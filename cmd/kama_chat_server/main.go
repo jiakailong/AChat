@@ -25,11 +25,13 @@ func main() {
 	groupDAO := dao.NewGroupDAO(dao.GormDB)
 	messageDAO := dao.NewMessageDAO(dao.GormDB)
 	sessionDAO := dao.NewSessionDAO(dao.GormDB)
+	userContactDAO := dao.NewUserContactDAO(dao.GormDB)
 
 	gorm.InitSessionService(sessionDAO, userDAO, groupDAO)
 	gorm.InitUserInfoService(userDAO)
 	gorm.InitGroupInfoService(groupDAO, userDAO)
 	gorm.InitMessageService(messageDAO)
+	gorm.InitUserContactService(userContactDAO, userDAO, groupDAO)
 	if kafkaConfig.MessageMode == "kafka" {
 		kafka.KafkaService.KafkaInit()
 	}

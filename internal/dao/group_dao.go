@@ -14,6 +14,7 @@ type GroupDAO interface {
 	CreateGroupWithContact(group *model.GroupInfo, contact *model.UserContact) error
 	GetGroupsByOwner(ownerId string) ([]model.GroupInfo, error)
 	GetGroupByUUID(uuid string) (*model.GroupInfo, error)
+	SaveGroup(group *model.GroupInfo) error
 	GetAllGroups() ([]model.GroupInfo, error)
 	LeaveGroup(group *model.GroupInfo, userId string) error
 	DismissGroup(groupId string) error
@@ -61,6 +62,11 @@ func (dao *groupDAOImpl) GetGroupByUUID(uuid string) (*model.GroupInfo, error) {
 		return nil, err
 	}
 	return &group, nil
+}
+
+// SaveGroup 保存群信息
+func (dao *groupDAOImpl) SaveGroup(group *model.GroupInfo) error {
+	return dao.db.Save(group).Error
 }
 
 // GetAllGroups 获取所有群 (管理员用，包含已软删除的，如果需要完全不过滤请加 Unscoped)
